@@ -1,0 +1,138 @@
+---
+title: "HAR Machine Learning Predictions"
+author: "Gary Mulder"
+date: "13 November 2016"
+output: html_document
+---
+
+```{r setup, include = FALSE, warning = FALSE, message = FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Project
+
+Using devices such as Jawbone Up, Nike FuelBand, and Fitbit it is now possible to collect a large amount of data about personal activity relatively inexpensively. These type of devices are part of the quantified self movement – a group of enthusiasts who take measurements about themselves regularly to improve their health, to find patterns in their behavior, or because they are tech geeks. One thing that people regularly do is quantify how much of a particular activity they do, but they rarely quantify how well they do it. In this project, your goal will be to use data from accelerometers on the belt, forearm, arm, and dumbell of 6 participants. They were asked to perform barbell lifts correctly and incorrectly in 5 different ways. More information is available from the website here: http://groupware.les.inf.puc-rio.br/har (see the section on the Weight Lifting Exercise Dataset).
+
+## Get and clean data
+
+```{r data, warning = FALSE, message = FALSE}
+library(tidyverse)
+library(caret)
+library(doParallel)
+
+set.seed(666)
+train <-
+  # read_csv("https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv")
+  read_csv("training.csv")
+test <-
+  # read_csv("https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv")
+  read_csv("test.csv")
+```
+
+read_csv sets to NA any data points that it cannot parse. To find a subset of predictors that have no NAs we count the number of NAs per predictor and filter all predictors with non-zero counts of NAs. We also filter out the first few columns which don't look to be of predictive value.
+
+```{r clean, warning = FALSE, message = FALSE}
+predictor_na_counts <-
+  train %>%
+  summarise_each(funs(sum(is.na(.)))) %>%
+  gather(predictors, num_nas) %>%
+  filter(num_nas == 0,
+         ! predictors %in% c("X1",
+                             "user_name",
+                             "raw_timestamp_part_1",
+                             "raw_timestamp_part_2",
+                             "cvtd_timestamp",
+                             "new_window",
+                             "num_window"))
+
+# Just use predictors with no NAs
+train_clean <-
+  train %>%
+  select(one_of(predictor_na_counts$predictors))
+
+# No classe outcome in the test set, as that is what we have to predict
+test <-
+  test %>%
+  select(one_of(predictor_na_counts$predictors[-50]))
+```
+
+## Configure parallel execution and cross validation for all models
+
+```{r cv, warning = FALSE, message = FALSE}
+cluster <-
+  makeCluster(detectCores())   # Use hyperthreading
+  # makeCluster(detectCores() / 2) # No hyperthreading
+registerDoParallel(cluster)
+
+# 10 folds
+train_control <-
+  trainControl(method = "cv", number = 10, allowParallel = TRUE)
+```  
+
+## Train Random Forest Model
+
+```{r rf, warning = FALSE, message = FALSE}
+system.time(fit_rf <-
+              train(
+                classe ~ .,
+                data = train_clean,
+                method = 'rf',
+                trControl = train_control))
+print(fit_rf)
+```
+
+Accuracy (for mtry = 2) was 0.99 on the training set with 10 cross validations. Out of sample error is therefore estimated at 1.00 - 0.99 = 0.01.
+
+## Train Generalized Boosted Regression Model
+
+```{r gbm, warning = FALSE, message = FALSE}
+system.time(fit_gbm <-
+              train(
+                classe ~ .,
+                data = train_clean,
+                method = 'gbm',
+                trControl = train_control))
+print(fit_gbm)
+```
+Accuracy (for interaction.depth = 3 and n.trees = 150) was 0.96 on the training set with 10 cross validations. Out of sample error is therefore estimated at 1.00 - 0.96 = 0.04. This is not as good as Random Forests, but training time was much faster.
+
+## Train Support Vector Machine Model
+
+```{r svm, warning = FALSE, message = FALSE}
+system.time(fit_svm <-
+              train(
+                classe ~ .,
+                data = train_clean,
+                method = 'svmLinear',
+                trControl = train_control))
+print(fit_svm)
+```
+
+Accuracy was 0.74 on the training set with 10 cross validations. Out of sample error is therefore estimated at 1.00 - 0.74 = 0.26. This is worse than either Random Forests or Generalized Boosted Regression.
+
+## Predict on the test set with highest accuracy Random Forest Model
+
+```{r rf_pred, warning = FALSE, message = FALSE}
+data.frame(prediction = predict(fit_rf, test))
+```
+
+## Compare the different model predictions
+
+It looks like Random Forests and Generalized Boosted Regression agree on all predictions, and both disagree with the Support Vector Machine:
+
+```{r compare_preds, warning = FALSE}
+data_frame(
+  random.forest = predict(fit_rf, test),
+  generalized.boosted.regression = predict(fit_gbm, test),
+  support.vector.machine = predict(fit_svm, test)
+  ) %>%
+  mutate(
+    rf.and.gbm.agree  = (random.forest == generalized.boosted.regression),
+    rf.and.svm.agree  = (random.forest == support.vector.machine),
+    gbm.and.svm.agree = (generalized.boosted.regression == support.vector.machine)
+  ) %>%
+  as.data.frame
+
+# Clean up parallel cluster
+stopCluster(cluster)
+```
