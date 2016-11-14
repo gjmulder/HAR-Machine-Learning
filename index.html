@@ -135,15 +135,15 @@ library(caret)
 library(doParallel)
 
 set.seed(666)
-train &lt;-
+train_df &lt;-
   # read_csv(&quot;https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv&quot;)
   read_csv(&quot;training.csv&quot;)
-test &lt;-
+test_df &lt;-
   # read_csv(&quot;https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv&quot;)
   read_csv(&quot;test.csv&quot;)</code></pre>
 <p>read_csv sets to NA any data points that it cannot parse. To find a subset of predictors that have no NAs we count the number of NAs per predictor and filter all predictors with non-zero counts of NAs. We also filter out the first few columns which don’t look to be of predictive value.</p>
-<pre class="r"><code>predictor_na_counts &lt;-
-  train %&gt;%
+<pre class="r"><code>predictors_to_keep &lt;-
+  train_df %&gt;%
   summarise_each(funs(sum(is.na(.)))) %&gt;%
   gather(predictors, num_nas) %&gt;%
   filter(num_nas == 0,
@@ -157,13 +157,13 @@ test &lt;-
 
 # Just use predictors with no NAs
 train_clean &lt;-
-  train %&gt;%
-  select(one_of(predictor_na_counts$predictors))
+  train_df %&gt;%
+  select(one_of(predictors_to_keep$predictors))
 
 # No classe outcome in the test set, as that is what we have to predict
-test &lt;-
-  test %&gt;%
-  select(one_of(predictor_na_counts$predictors[-50]))</code></pre>
+test_clean &lt;-
+  test_df %&gt;%
+  select(one_of(predictors_to_keep$predictors[-50]))</code></pre>
 </div>
 <div id="configure-parallel-execution-and-cross-validation-for-all-models" class="section level2">
 <h2>Configure parallel execution and cross validation for all models</h2>
@@ -185,7 +185,7 @@ train_control &lt;-
                 method = 'rf',
                 trControl = train_control))</code></pre>
 <pre><code>##    user  system elapsed 
-##   42.47    0.48  580.82</code></pre>
+##   39.17    0.49  534.54</code></pre>
 <pre class="r"><code>print(fit_rf)</code></pre>
 <pre><code>## Random Forest 
 ## 
@@ -235,7 +235,7 @@ train_control &lt;-
 ##    140        0.2083             nan     0.1000    0.0018
 ##    150        0.1942             nan     0.1000    0.0025</code></pre>
 <pre><code>##    user  system elapsed 
-##   33.91    0.25  181.93</code></pre>
+##   30.70    0.29  169.61</code></pre>
 <pre class="r"><code>print(fit_gbm)</code></pre>
 <pre><code>## Stochastic Gradient Boosting 
 ## 
@@ -276,7 +276,7 @@ train_control &lt;-
                 method = 'svmLinear',
                 trControl = train_control))</code></pre>
 <pre><code>##    user  system elapsed 
-##   44.83    0.33  232.18</code></pre>
+##   35.22    0.16  205.90</code></pre>
 <pre class="r"><code>print(fit_svm)</code></pre>
 <pre><code>## Support Vector Machines with Linear Kernel 
 ## 
@@ -298,7 +298,7 @@ train_control &lt;-
 </div>
 <div id="predict-on-the-test-set-with-highest-accuracy-random-forest-model" class="section level2">
 <h2>Predict on the test set with highest accuracy Random Forest Model</h2>
-<pre class="r"><code>data.frame(prediction = predict(fit_rf, test))</code></pre>
+<pre class="r"><code>data.frame(prediction = predict(fit_rf, test_clean))</code></pre>
 <pre><code>##    prediction
 ## 1           B
 ## 2           A
@@ -325,9 +325,9 @@ train_control &lt;-
 <h2>Compare the different model predictions</h2>
 <p>It looks like Random Forests and Generalized Boosted Regression agree on all predictions, and both disagree with the Support Vector Machine:</p>
 <pre class="r"><code>data_frame(
-  random.forest = predict(fit_rf, test),
-  generalized.boosted.regression = predict(fit_gbm, test),
-  support.vector.machine = predict(fit_svm, test)
+  random.forest = predict(fit_rf, test_clean),
+  generalized.boosted.regression = predict(fit_gbm, test_clean),
+  support.vector.machine = predict(fit_svm, test_clean)
   ) %&gt;%
   mutate(
     rf.and.gbm.agree  = (random.forest == generalized.boosted.regression),

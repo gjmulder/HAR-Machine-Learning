@@ -21,10 +21,10 @@ library(caret)
 library(doParallel)
 
 set.seed(666)
-train <-
+train_df <-
   # read_csv("https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv")
   read_csv("training.csv")
-test <-
+test_df <-
   # read_csv("https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv")
   read_csv("test.csv")
 ```
@@ -32,8 +32,8 @@ test <-
 read_csv sets to NA any data points that it cannot parse. To find a subset of predictors that have no NAs we count the number of NAs per predictor and filter all predictors with non-zero counts of NAs. We also filter out the first few columns which don't look to be of predictive value.
 
 ```{r clean, warning = FALSE, message = FALSE}
-predictor_na_counts <-
-  train %>%
+predictors_to_keep <-
+  train_df %>%
   summarise_each(funs(sum(is.na(.)))) %>%
   gather(predictors, num_nas) %>%
   filter(num_nas == 0,
@@ -47,13 +47,13 @@ predictor_na_counts <-
 
 # Just use predictors with no NAs
 train_clean <-
-  train %>%
-  select(one_of(predictor_na_counts$predictors))
+  train_df %>%
+  select(one_of(predictors_to_keep$predictors))
 
 # No classe outcome in the test set, as that is what we have to predict
-test <-
-  test %>%
-  select(one_of(predictor_na_counts$predictors[-50]))
+test_clean <-
+  test_df %>%
+  select(one_of(predictors_to_keep$predictors[-50]))
 ```
 
 ## Configure parallel execution and cross validation for all models
@@ -113,7 +113,7 @@ Accuracy was 0.74 on the training set with 10 cross validations. Out of sample e
 ## Predict on the test set with highest accuracy Random Forest Model
 
 ```{r rf_pred, warning = FALSE, message = FALSE}
-data.frame(prediction = predict(fit_rf, test))
+data.frame(prediction = predict(fit_rf, test_clean))
 ```
 
 ## Compare the different model predictions
@@ -122,9 +122,9 @@ It looks like Random Forests and Generalized Boosted Regression agree on all pre
 
 ```{r compare_preds, warning = FALSE}
 data_frame(
-  random.forest = predict(fit_rf, test),
-  generalized.boosted.regression = predict(fit_gbm, test),
-  support.vector.machine = predict(fit_svm, test)
+  random.forest = predict(fit_rf, test_clean),
+  generalized.boosted.regression = predict(fit_gbm, test_clean),
+  support.vector.machine = predict(fit_svm, test_clean)
   ) %>%
   mutate(
     rf.and.gbm.agree  = (random.forest == generalized.boosted.regression),
